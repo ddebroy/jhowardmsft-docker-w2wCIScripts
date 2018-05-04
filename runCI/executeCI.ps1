@@ -76,6 +76,8 @@ $StartTime=Get-Date
 #    WINDOWS_BASE_IMAGE       if defined, uses that as the base image. Note that the
 #                             docker integration tests are also coded to use the same
 #                             environment variable, and if no set, defaults to microsoft/windowsservercore
+#
+#    WINDOWS_BASE_IMAGE_TAG   if defined, uses that as the tag of the base image to pull.
 # -------------------------------------------------------------------------------------------
 #
 # Jenkins Integration. Add a Windows Powershell build step as follows:
@@ -110,6 +112,7 @@ $FinallyColour="Cyan"
 #$env:SKIP_ALL_CLEANUP="yes"
 #$env:INTEGRATION_IN_CONTAINER="yes"
 #$env:WINDOWS_BASE_IMAGE=""
+#$env:WINDOWS_BASE_IMAGE_TAG=""
 #$env:SKIP_COPY_GO="yes"
 
 Function Get-DockerCEVersion() {
@@ -267,6 +270,9 @@ Try {
 	$origProgressPreference=$global:ProgressPreference
 	$global:ProgressPreference='SilentlyContinue'
 
+    # Write a ping message every 8 minutes to try keeping Jenkins connected
+    Start-Process -NoNewWindow 'powershell.exe' '-c while ($true) { Start-Sleep 480; Write-Host "Jenkins keep-alive..." } '
+
     # Git version
     Write-Host  -ForegroundColor Green "INFO: Running $(git version)"
 
@@ -351,8 +357,14 @@ Try {
     $ErrorActionPreference = "SilentlyContinue"
     $ControlDaemonBaseImage="windowsservercore"
 
+    if ($env:WINDOWS_BASE_IMAGE_TAG -eq $Null) {
+        $env:WINDOWS_BASE_IMAGE_TAG="latest"
+    }
+
+    $ControlDaemonBaseImageTagged=$ControlDaemonBaseImage+":"+$env:WINDOWS_BASE_IMAGE_TAG
+
     $readBaseFrom="c"
-    if ($((docker images --format "{{.Repository}}:{{.Tag}}" | Select-String $("microsoft/"+$ControlDaemonBaseImage+":latest") | Measure-Object -Line).Lines) -eq 0) {
+    if ($((docker images --format "{{.Repository}}:{{.Tag}}" | Select-String $("microsoft/"+$ControlDaemonBaseImageTagged) | Measure-Object -Line).Lines) -eq 0) {
         # Try the internal azure CI image version or Microsoft internal corpnet where the base image is already pre-prepared on the disk,
         # either through Invoke-DockerCI or, in the case of Azure CI servers, baked into the VHD at the same location.
         if (Test-Path $("$env:SOURCES_DRIVE`:\baseimages\"+$ControlDaemonBaseImage+".tar")) {
@@ -388,17 +400,21 @@ Try {
             Write-Host -ForegroundColor Green "INFO: docker load of"$ControlDaemonBaseImage" completed successfully"
         } else {
             # We need to docker pull it instead. It will come in directly as microsoft/imagename:latest
-            Write-Host -ForegroundColor Green $("INFO: Pulling microsoft/"+$ControlDaemonBaseImage+":latest from docker hub. This may take some time...")
+            Write-Host -ForegroundColor Green $("INFO: Pulling microsoft/"+$ControlDaemonBaseImageTagged+" from docker hub. This may take some time...")
             $ErrorActionPreference = "SilentlyContinue"
-            docker pull $("microsoft/"+$ControlDaemonBaseImage)
+            docker pull $("microsoft/"+$ControlDaemonBaseImageTagged)
             $ErrorActionPreference = "Stop"
             if (-not $LastExitCode -eq 0) {
-                Throw $("ERROR: Failed to docker pull microsoft/"+$ControlDaemonBaseImage+":latest.")
+                Throw $("ERROR: Failed to docker pull microsoft/"+$ControlDaemonBaseImageTagged+".")
             }
-            Write-Host -ForegroundColor Green $("INFO: docker pull of microsoft/"+$ControlDaemonBaseImage+":latest completed successfully")
+            Write-Host -ForegroundColor Green $("INFO: docker pull of microsoft/"+$ControlDaemonBaseImageTagged+" completed successfully")
         }
     } else {
-        Write-Host -ForegroundColor Green "INFO: Image"$("microsoft/"+$ControlDaemonBaseImage+":latest")"is already loaded in the control daemon"
+        Write-Host -ForegroundColor Green "INFO: Image"$("microsoft/"+$ControlDaemonBaseImageTagged)"is already loaded in the control daemon"
+    }
+
+    if ($WINDOWS_BASE_IMAGE_TAG -ne "latest") {
+        docker tag $("microsoft/"+$ControlDaemonBaseImageTagged) $("microsoft/"+$ControlDaemonBaseImage+":latest")
     }
 
     # Inspect the pulled image to get the version directly
@@ -702,13 +718,16 @@ Try {
         $env:WINDOWS_BASE_IMAGE="microsoft/windowsservercore"
     }
 
+    
     # Lowercase and make sure it has a microsoft/ prefix
     $env:WINDOWS_BASE_IMAGE = $env:WINDOWS_BASE_IMAGE.ToLower()
     if ($($env:WINDOWS_BASE_IMAGE -Split "/")[0] -ne "microsoft") {
         Throw "ERROR: WINDOWS_BASE_IMAGE should start microsoft/"
     }
 
-    Write-Host -ForegroundColor Green "INFO: Base image for tests is $env:WINDOWS_BASE_IMAGE"
+    $WindowsBaseImage = $env:WINDOWS_BASE_IMAGE+":"+$env:WINDOWS_BASE_IMAGE_TAG
+
+    Write-Host -ForegroundColor Green "INFO: Base image for tests is $WindowsBaseImage"
 
     $ErrorActionPreference = "SilentlyContinue"
     if ($((& "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" images --format "{{.Repository}}:{{.Tag}}" | Select-String $($env:WINDOWS_BASE_IMAGE+":latest") | Measure-Object -Line).Lines) -eq 0) {
@@ -725,17 +744,21 @@ Try {
             Write-Host -ForegroundColor Green "INFO: docker load of"$($env:WINDOWS_BASE_IMAGE -Split "/")[1]" into daemon under test completed successfully"
         } else {
             # We need to docker pull it instead. It will come in directly as microsoft/imagename:latest
-            Write-Host -ForegroundColor Green $("INFO: Pulling "+$env:WINDOWS_BASE_IMAGE+":latest from docker hub into daemon under test. This may take some time...")
+            Write-Host -ForegroundColor Green $("INFO: Pulling "+$WindowsBaseImage+" from docker hub into daemon under test. This may take some time...")
             $ErrorActionPreference = "SilentlyContinue"
-            & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" pull $($env:WINDOWS_BASE_IMAGE)
+            & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" pull $($WindowsBaseImage)
             $ErrorActionPreference = "Stop"
             if (-not $LastExitCode -eq 0) {
-                Throw $("ERROR: Failed to docker pull "+$env:WINDOWS_BASE_IMAGE+":latest into daemon under test.")
+                Throw $("ERROR: Failed to docker pull "+$WindowsBaseImage+" into daemon under test.")
             }
-            Write-Host -ForegroundColor Green $("INFO: docker pull of "+$env:WINDOWS_BASE_IMAGE+":latest into daemon under test completed successfully")
+            Write-Host -ForegroundColor Green $("INFO: docker pull of "+$WindowsBaseImage+" into daemon under test completed successfully")
         }
     } else {
-        Write-Host -ForegroundColor Green "INFO: Image"$($env:WINDOWS_BASE_IMAGE+":latest")"is already loaded in the daemon under test"
+        Write-Host -ForegroundColor Green "INFO: Image"$($WindowsBaseImage)"is already loaded in the daemon under test"
+    }
+
+    if ($WINDOWS_BASE_IMAGE_TAG -ne "latest") {
+        & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" tag $($WindowsBaseImage) $($env:WINDOWS_BASE_IMAGE+":latest")
     }
 
     # Inspect the pulled or loaded image to get the version directly
@@ -899,12 +922,12 @@ Catch [Exception] {
     Write-Host -ForegroundColor Red ("`r`n`r`nERROR: Failed '$_' at $(Get-Date)")
     Write-Host "`n`n"
 
-    # Exit to ensure Jenkins captures it. Don't do this in the ISE or interactive Powershell - they will catch the Throw onwards.
-    if ( ([bool]([Environment]::GetCommandLineArgs() -Like '*-NonInteractive*')) -and `
-         ([bool]([Environment]::GetCommandLineArgs() -NotLike "*Powershell_ISE.exe*"))) {
+    # Exit to ensure Jenkins captures it. Don't do this in the ISE or interactive Powershell - they will catch the Throw onwards.
+    if ( ([bool]([Environment]::GetCommandLineArgs() -Like '*-NonInteractive*')) -and `
+         ([bool]([Environment]::GetCommandLineArgs() -NotLike "*Powershell_ISE.exe*"))) {
         exit 1
-    }
-    Throw $_
+    }
+    Throw $_
 }
 Finally {
     $ErrorActionPreference="SilentlyContinue"
