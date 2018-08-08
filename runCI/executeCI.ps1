@@ -73,11 +73,15 @@ $StartTime=Get-Date
 #
 #    SKIP_ALL_CLEANUP         if defined, skips any cleanup at the start or end of the run
 #
+#    CONTROL_BASE_IMAGE       if defined, uses that as the base image for the control daemon
+#
+#    CONTROL_BASE_IMAGE_TAG   if defined, uses that as the tag of the base image to pull
+#
 #    WINDOWS_BASE_IMAGE       if defined, uses that as the base image. Note that the
 #                             docker integration tests are also coded to use the same
 #                             environment variable, and if no set, defaults to microsoft/windowsservercore
 #
-#    WINDOWS_BASE_IMAGE_TAG   if defined, uses that as the tag of the base image to pull.
+#    WINDOWS_BASE_IMAGE_TAG   if defined, uses that as the tag of the base image to pull
 # -------------------------------------------------------------------------------------------
 #
 # Jenkins Integration. Add a Windows Powershell build step as follows:
@@ -111,6 +115,8 @@ $FinallyColour="Cyan"
 #$env:SKIP_IMAGE_BUILD="yes"
 #$env:SKIP_ALL_CLEANUP="yes"
 #$env:INTEGRATION_IN_CONTAINER="yes"
+#$env:CONTROL_BASE_IMAGE=""
+#$env:CONTROL_BASE_IMAGE_TAG=""
 #$env:WINDOWS_BASE_IMAGE=""
 #$env:WINDOWS_BASE_IMAGE_TAG=""
 #$env:SKIP_COPY_GO="yes"
@@ -355,13 +361,17 @@ Try {
     # Note we cannot use (as at Oct 2016) nanoserver as the control daemons base image, even if nanoserver is used in the tests themselves.
 
     $ErrorActionPreference = "SilentlyContinue"
-    $ControlDaemonBaseImage="windowsservercore"
-
-    if ($env:WINDOWS_BASE_IMAGE_TAG -eq $Null) {
-        $env:WINDOWS_BASE_IMAGE_TAG="latest"
+    if ($env:CONTROL_BASE_IMAGE -eq $Null) {
+        $ControlDaemonBaseImage="windowsservercore"
+    } else {
+        $ControlDaemonBaseImage=$env:CONTROL_BASE_IMAGE
     }
 
-    $ControlDaemonBaseImageTagged=$ControlDaemonBaseImage+":"+$env:WINDOWS_BASE_IMAGE_TAG
+    if ($env:CONTROL_BASE_IMAGE_TAG -eq $Null) {
+        $env:CONTROL_BASE_IMAGE_TAG="latest"
+    }
+
+    $ControlDaemonBaseImageTagged=$ControlDaemonBaseImage+":"+$env:CONTROL_BASE_IMAGE_TAG
 
     $readBaseFrom="c"
     if ($((docker images --format "{{.Repository}}:{{.Tag}}" | Select-String $("microsoft/"+$ControlDaemonBaseImageTagged) | Measure-Object -Line).Lines) -eq 0) {
@@ -413,8 +423,8 @@ Try {
         Write-Host -ForegroundColor Green "INFO: Image"$("microsoft/"+$ControlDaemonBaseImageTagged)"is already loaded in the control daemon"
     }
 
-    if ($WINDOWS_BASE_IMAGE_TAG -ne "latest") {
-        docker tag $("microsoft/"+$ControlDaemonBaseImageTagged) $("microsoft/"+$ControlDaemonBaseImage+":latest")
+    if ($CONTROL_BASE_IMAGE_TAG -ne "latest") {
+        docker tag $("microsoft/"+$ControlDaemonBaseImageTagged) "microsoft/windowsservercore:latest"
     }
 
     # Inspect the pulled image to get the version directly
@@ -757,8 +767,9 @@ Try {
         Write-Host -ForegroundColor Green "INFO: Image"$($WindowsBaseImage)"is already loaded in the daemon under test"
     }
 
-    if ($WINDOWS_BASE_IMAGE_TAG -ne "latest") {
-        & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" tag $($WindowsBaseImage) $($env:WINDOWS_BASE_IMAGE+":latest")
+    if ($env:WINDOWS_BASE_IMAGE_TAG -ne "latest") {
+        & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" tag $($WindowsBaseImage) "microsoft/windowsservercore:latest"
+        & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" tag "microsoft/windowsservercore:latest" $env:WINDOWS_BASE_IMAGE":latest"
     }
 
     # Inspect the pulled or loaded image to get the version directly
@@ -810,7 +821,7 @@ Try {
             $ErrorActionPreference = "SilentlyContinue"
 
             # This is a temporary hack for nanoserver
-            if ($env:WINDOWS_BASE_IMAGE -ne "microsoft/windowsservercore") {
+            if ($env:WINDOWS_BASE_IMAGE -notlike "microsoft/windowsservercore*") {
                 Write-Host -ForegroundColor Red "HACK HACK HACK - Building 64-bit nanoserver busybox image"
                 $(& "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" build -t busybox https://raw.githubusercontent.com/jhowardmsft/busybox64/master/Dockerfile | Out-Host)
             } else {
