@@ -374,7 +374,7 @@ Try {
     $ControlDaemonBaseImageTagged=$ControlDaemonBaseImage+":"+$env:CONTROL_BASE_IMAGE_TAG
 
     $readBaseFrom="c"
-    if ($((docker images --format "{{.Repository}}:{{.Tag}}" | Select-String $("microsoft/"+$ControlDaemonBaseImageTagged) | Measure-Object -Line).Lines) -eq 0) {
+    if ($((docker images --format "{{.Repository}}:{{.Tag}}" | Select-String $($ControlDaemonBaseImageTagged) | Measure-Object -Line).Lines) -eq 0) {
         # Try the internal azure CI image version or Microsoft internal corpnet where the base image is already pre-prepared on the disk,
         # either through Invoke-DockerCI or, in the case of Azure CI servers, baked into the VHD at the same location.
         if (Test-Path $("$env:SOURCES_DRIVE`:\baseimages\"+$ControlDaemonBaseImage+".tar")) {
@@ -409,29 +409,29 @@ Try {
             }
             Write-Host -ForegroundColor Green "INFO: docker load of"$ControlDaemonBaseImage" completed successfully"
         } else {
-            # We need to docker pull it instead. It will come in directly as microsoft/imagename:latest
-            Write-Host -ForegroundColor Green $("INFO: Pulling microsoft/"+$ControlDaemonBaseImageTagged+" from docker hub. This may take some time...")
+            # We need to docker pull it instead. It will come in directly as imagename:latest
+            Write-Host -ForegroundColor Green $("INFO: Pulling "+$ControlDaemonBaseImageTagged+" from docker hub. This may take some time...")
             $ErrorActionPreference = "SilentlyContinue"
-            docker pull $("microsoft/"+$ControlDaemonBaseImageTagged)
+            docker pull $($ControlDaemonBaseImageTagged)
             $ErrorActionPreference = "Stop"
             if (-not $LastExitCode -eq 0) {
-                Throw $("ERROR: Failed to docker pull microsoft/"+$ControlDaemonBaseImageTagged+".")
+                Throw $("ERROR: Failed to docker pull "+$ControlDaemonBaseImageTagged+".")
             }
-            Write-Host -ForegroundColor Green $("INFO: docker pull of microsoft/"+$ControlDaemonBaseImageTagged+" completed successfully")
+            Write-Host -ForegroundColor Green $("INFO: docker pull of "+$ControlDaemonBaseImageTagged+" completed successfully")
         }
     } else {
-        Write-Host -ForegroundColor Green "INFO: Image"$("microsoft/"+$ControlDaemonBaseImageTagged)"is already loaded in the control daemon"
+        Write-Host -ForegroundColor Green "INFO: Image"$($ControlDaemonBaseImageTagged)"is already loaded in the control daemon"
     }
 
     if ($CONTROL_BASE_IMAGE_TAG -ne "latest") {
-        docker tag $("microsoft/"+$ControlDaemonBaseImageTagged) "microsoft/windowsservercore:latest"
+        docker tag $($ControlDaemonBaseImageTagged) "microsoft/windowsservercore:latest"
     }
 
     # Inspect the pulled image to get the version directly
     $ErrorActionPreference = "SilentlyContinue"
-    $imgVersion = $(docker inspect  $("microsoft/"+$ControlDaemonBaseImage) --format "{{.OsVersion}}")
+    $imgVersion = $(docker inspect  $($ControlDaemonBaseImage) --format "{{.OsVersion}}")
     $ErrorActionPreference = "Stop"
-    Write-Host -ForegroundColor Green $("INFO: Version of microsoft/"+$ControlDaemonBaseImage+":latest is '"+$imgVersion+"'")
+    Write-Host -ForegroundColor Green $("INFO: Version of "+$ControlDaemonBaseImage+":latest is '"+$imgVersion+"'")
 
     # Provide the docker version for debugging purposes.
     Write-Host  -ForegroundColor Green "INFO: Docker version of control daemon"
@@ -722,8 +722,8 @@ Try {
     }
     Write-Host
 
-    # Default to windowsservercore for the base image used for the tests. The "docker" image
-    # and the control daemon use microsoft/windowsservercore regardless. This is *JUST* for the tests.
+    # Default to windowsservercore for the base image used for the tests.
+    # This is *JUST* for the tests.
     if ($env:WINDOWS_BASE_IMAGE -eq $Null) {
         $env:WINDOWS_BASE_IMAGE="microsoft/windowsservercore"
     }
@@ -731,9 +731,6 @@ Try {
     
     # Lowercase and make sure it has a microsoft/ prefix
     $env:WINDOWS_BASE_IMAGE = $env:WINDOWS_BASE_IMAGE.ToLower()
-    if ($($env:WINDOWS_BASE_IMAGE -Split "/")[0] -ne "microsoft") {
-        Throw "ERROR: WINDOWS_BASE_IMAGE should start microsoft/"
-    }
 
     $WindowsBaseImage = $env:WINDOWS_BASE_IMAGE+":"+$env:WINDOWS_BASE_IMAGE_TAG
 
@@ -753,7 +750,7 @@ Try {
             }
             Write-Host -ForegroundColor Green "INFO: docker load of"$($env:WINDOWS_BASE_IMAGE -Split "/")[1]" into daemon under test completed successfully"
         } else {
-            # We need to docker pull it instead. It will come in directly as microsoft/imagename:latest
+            # We need to docker pull it instead. It will come in directly as imagename:latest
             Write-Host -ForegroundColor Green $("INFO: Pulling "+$WindowsBaseImage+" from docker hub into daemon under test. This may take some time...")
             $ErrorActionPreference = "SilentlyContinue"
             & "$env:TEMP\binary\docker-$COMMITHASH" "-H=$($DASHH_CUT)" pull $($WindowsBaseImage)
