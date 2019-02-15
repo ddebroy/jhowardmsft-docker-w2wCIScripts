@@ -860,7 +860,7 @@ Try {
             Write-Host -ForegroundColor Magenta "WARN: Only running integration tests matching $env:INTEGRATION_TEST_NAME"
         }
         $c += "`"-tags`" " + "`"autogen`" "
-        $c += "`"-check.timeout`" " + "`"10m`" "
+        $c += "`"-check.timeout`" " + "`"60m`" "
         $c += "`"-test.timeout`" " + "`"200m`" "
 
         if ($env:INTEGRATION_IN_CONTAINER -ne $null) {
